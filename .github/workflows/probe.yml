@@ -1,0 +1,43 @@
+name: Probe crof.ai
+
+on: workflow_dispatch
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Ask every crof.ai model to call openrouter:advisor
+        run: python3 probe.py
+        env:
+          CROF_KEY: ${{ secrets.CROF_KEY }}
+
+      - name: Install cloudflared
+        run: |
+          curl -fsSL -o cloudflared.deb https://github.com/cloudflare/cloudflared/releases/download/2026.9.1/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared.deb
+
+      - name: Send the advisor request to 67.nahcrof.com, and an image URL to both APIs
+        run: python3 coverup.py
+        env:
+          CROF_KEY: ${{ secrets.CROF_KEY }}
+
+      - name: Attest the raw results
+        id: attest
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: results/*
+
+      - name: Publish the raw results and the attestation as a release
+        run: |
+          cp "${{ steps.attest.outputs.bundle-path }}" attestation.jsonl
+          cat results/summary.md results/coverup.md > notes.md
+          gh release create "probe-${{ github.run_id }}" results/* attestation.jsonl --title "Probe $(date -u +%F)" --notes-file notes.md
+        env:
+          GH_TOKEN: ${{ github.token }}
